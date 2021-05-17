@@ -1,0 +1,93 @@
+#!/bin/bash 
+set -euo pipefail
+LANG=C
+
+# constants
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+SSH_MAX_SESSIONS="${SSH_MAX_SESSIONS:-20}"
+BORG_SERVE_ARGS="${BORG_SERVE_ARGS:-}"
+BORG_DATA_DIR="${BORG_DATA_DIR:-/backup}"
+SSH_KEY_DIR="${SSH_KEY_DIR:-/sshkeys}"
+
+
+# Set the user id of the "borg" user inside the container. This can be useful
+# when the container has to access resources on the host with a specific user
+# id.
+echo "* $0: adjusting borg to $PUID:$PGID" \
+&& groupmod --gid $PGID borg \
+&& usermod  --uid $PUID --gid $PGID borg 2>/dev/null \
+&& chown -R borg:borg  "$(echo ~borg)" \
+&& install -o $PUID -g $PGID -m 0700 --directory "$(echo ~borg)/.ssh" \
+&& install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR" \
+&& install -o $PUID -g $PGID -m 0750 --directory "$SSH_KEY_DIR" "$SSH_KEY_DIR/host" 
+
+
+
+# some executable specified as CMD to entrypoint script
+if which "${1:-}" >/dev/null 2>&1
+then
+
+    echo "* $0: Launching user-defined command \"$@\""
+    exec "$@" 
+
+# container is executed with options or non-executable string as first
+# parameter, start sshd daemon
+else
+    # announce borg 
+    echo -n "* $0: Borg version:"
+    borg --version
+
+
+    # check if client ssh keys are present, copy these into borg users authorized_keys
+    echo "* $0: import client SSH keys to borg user's authorized_keys" \
+    && ssh_authkeys_file="$(echo ~borg)/.ssh/authorized_keys" \
+    && touch "$ssh_authkeys_file" \
+    && chown borg:borg "$ssh_authkeys_file" \
+    && chmod 0600 "$ssh_authkeys_file"
+
+    # write client ssh keys and commands - 
+    # "if" condition only works with bash "-o pipefail"
+    if ! find "$SSH_KEY_DIR/clients" -type f | while read keyfile_path; do
+
+        repo_name="$(basename "$keyfile_path")" 
+        echo "  * $repo_name"
+        # create repository dir, if not exists
+        install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR/$repo_name" 
+
+        # define ssh command in authorized_keys
+        echo -n "cd '$BORG_DATA_DIR/$repo_name' && borg serve " >> "$ssh_authkeys_file"
+        echo -n "--restrict-to-path '$BORG_DATA_DIR/$repo_name' " >> "$ssh_authkeys_file"
+        echo -n "$BORG_SERVE_ARGS" >> "$ssh_authkeys_file"
+        cat "$keyfile_path" >> "$ssh_authkeys_file"
+
+#        # validate authorized_keys file
+#        if ! ssh-keygen -lf "$ssh_authkeys_file"; then
+#            echo "ERROR in generated authorized_keys file:"
+#            cat "$ssh_authkeys_file"
+#            exit 1
+#        fi
+    # or exit in case there is no client key file
+    done; then
+        echo "ERROR executing $0: Error processing client ssh key files in \"$SSH_KEY_DIR/clients\"!"
+        exit 1
+    fi
+
+    # create ssh host keys on peristent storage, if not exists
+    for keytype in ed25519 rsa ; do
+        if [ ! -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" ] ; then
+            echo "* $0: creating SSH host key [${keytype}]"
+            ssh-keygen -q -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" -N '' -t ${keytype}
+        fi
+    done
+
+    # finally, clean up and start sshd
+    echo "* $0: adjusting sshd to $SSH_MAX_SESSIONS max sessions, starting"
+    sed -i "s|^MaxSessions.*|MaxSessions $SSH_MAX_SESSIONS|" /etc/ssh/sshd_config
+
+    exec /usr/sbin/sshd -D -e "$@"
+
+fi
+
+# vim: set ft=sh:ts=4:sw=4:
