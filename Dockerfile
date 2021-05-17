@@ -1,76 +1,71 @@
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Debian based borg server - multistage docker image
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-# stage 1
+# STAGE 1: compile borg software to /usr/local/borg
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FROM debian:10-slim AS builder
 
 ARG BORG_VERSION=1.1.16
     
-# package installation and compilation
 RUN set -ex \
  && apt-get update \
  # build packages
  && DEBIAN_FRONTEND=noninteractive \
-    #apt-get install --yes --no-install-recommends --no-install-suggests \
     apt-get install --yes \
+        build-essential \
+        libacl1 \
+        libacl1-dev \
+        libssl-dev \
+        libzstd-dev \
+        openssl \
         python3 \
         python3-dev \
-        python-virtualenv \
         python3-pip \
-        libssl-dev \
-        openssl \
-        libacl1-dev \
-        libacl1 \
-        build-essential 
+        virtualenv
+
 
 RUN set -ex \
- && virtualenv --python=python3 /usr/local/borg \
- && . /usr/local/borg/bin/activate \
+ && virtualenv --python=python3 /opt/borg \
+ && . /opt/borg/bin/activate \
  && python3 -m pip install borgbackup==$BORG_VERSION 
 
 
-# stage 2
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# STAGE 2: 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FROM debian:10-slim 
 
-ENV \
-    PUID=1000 \
-    PGID=1000 \
-    SSH_MAX_SESSIONS=20 \
-    BORG_SERVE_ARGS='' \
-    BORG_REPOSITORIES=/backup \
-    BORG_SSH_KEYS=/sshkeys 
-
-# package installation
+# application packages installation
 RUN set -ex \
  && apt-get update \
- # application packages
- && DEBIAN_FRONTEND=noninteractive apt-get install --yes openssh-server \
+ && DEBIAN_FRONTEND=noninteractive \
+    apt-get install --yes --no-install-recommends --no-install-suggests \
+        openssh-server \
+        python3-minimal \
+        python3-distutils \
  && apt-get --yes autoremove && apt-get clean \
- && rm -rf /tmp/* /usr/share/doc/ /var/lib/apt/lists/* /var/tmp/* 
+ && rm -rf /tmp/* /usr/share/doc/ /var/lib/apt/lists/* /var/tmp/* \
+ && mkdir -p /run/sshd
 
 
-COPY --from=builder /usr/local/borg /usr/local
-COPY files/ /
+COPY --from=builder /opt/borg /opt/borg
+COPY bin/ /usr/local/bin/
+COPY config/sshd_config /etc/ssh/
 
 # application runtime config
 RUN set -ex \
  # make borg executable available in path
- && ln -sf /opt/borg/bin/borg /usr/local/bin/ \
  # create borg group and user, set random password
- && groupadd borg --gid $PGID \
- && useradd --gid $PGID --uid $PUID --create-home --shell /bin/bash borg \
+ && groupadd borg --gid 1000 \
+ && useradd --gid 1000 --uid 1000 --create-home --shell /bin/bash borg \
  && echo "borg:$(tr -dc _A-Z-a-z-0-9 </dev/urandom | head -c${1:-32})" | chpasswd
 
+ENV PATH="/opt/borg/bin:$PATH"
 
 # docker integration
-WORKDIR "$BORG_REPOSITORIES"
-VOLUME "$BORG_REPOSITORIES"
 EXPOSE 22
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["/usr/sbin/sshd", "-D", "-e"]
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
 
 # vim: set ft=sh:ts=4:sw=4:
