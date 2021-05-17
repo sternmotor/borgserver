@@ -1,20 +1,31 @@
-version: '3'
+# docker-compose config for running borg backup server
+---
+
+version: '2.4'
+
 services:
- borgserver:
-  image: nold360/borgserver
-  #build: .
-  volumes:
-   - ./backup:/backup
-   - ./sshkeys:/sshkeys
-  ports:
-   - "2222:22"
-  environment:
-   BORG_SERVE_ARGS: ""
 
-   # If set to "yes", only the BORG_ADMIN
-   # can delete/prune the all clients archives/repos
-   BORG_APPEND_ONLY: "no"
+  borgserver:
+    hostname: borgserver
+    container_name: borgserver
+    image: sternmotor/borgserver:1.1.16
+    build: build
+    ports:
+    - '10.172.172.2:30001:22'
+    volumes:
+    - /media/data/borgbackup:/backup:rw
+    - sshkeys:/sshkeys:rw
+    environment:
+      BORG_SERVE_ARGS: ''
+      SSH_MAX_SESSIONS: 5
+      # BORG_DATA_DIR: /backup
+      # SSH_KEY_DIR: /sshkeys
+      PUID: 1000
+      PGID: 1000
+      TZ: 'Europe/Berlin'
+    restart: unless-stopped
 
-   # Hostname of Admin's SSH-Key
-   BORG_ADMIN: ""
-  restart: unless-stopped
+volumes:
+  sshkeys:
+
+# vim: ts=2:sw=2
