@@ -46,8 +46,7 @@ RUN set -ex \
         python3-minimal \
         python3-distutils \
  && apt-get --yes autoremove && apt-get clean \
- && rm -rf /tmp/* /usr/share/doc/ /var/lib/apt/lists/* /var/tmp/* \
- && mkdir -p /run/sshd
+ && rm -rf /tmp/* /usr/share/doc/ /var/lib/apt/lists/* /var/tmp/* 
 
 
 COPY --from=builder /opt/borg /opt/borg
@@ -56,11 +55,12 @@ COPY config/sshd_config /etc/ssh/
 
 # application runtime config
 RUN set -ex \
- # make borg executable available in path
  # create borg group and user, set random password
  && groupadd borg --gid 1000 \
  && useradd --gid 1000 --uid 1000 --create-home --shell /bin/bash borg \
- && echo "borg:$(tr -dc _A-Z-a-z-0-9 </dev/urandom | head -c${1:-32})" | chpasswd
+ && echo "borg:$(tr -dc _A-Z-a-z-0-9 </dev/urandom | head -c${1:-32})" | chpasswd \
+ # sshd privilege separation workdir
+ && mkdir -p /run/sshd
 
 ENV PATH="/opt/borg/bin:$PATH"
 
