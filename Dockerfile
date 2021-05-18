@@ -17,7 +17,6 @@ RUN set -ex \
         libacl1 \
         libacl1-dev \
         libssl-dev \
-        libzstd-dev \
         openssl \
         python3 \
         python3-dev \
