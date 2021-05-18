@@ -9,23 +9,23 @@ services:
     hostname: borgserver
     container_name: borgserver
     image: sternmotor/borgserver:1.1.16
-    build: build
     ports:
-    - '10.172.172.2:30001:22'
+    - '0.0.0.0:22222:22'
     volumes:
-    - /media/data/borgbackup:/backup:rw
-    - sshkeys:/sshkeys:rw
+    - backup_data:/backup:rw
+    - client_ssh_keys:/sshkeys:rw
     environment:
-      BORG_SERVE_ARGS: ''
-      SSH_MAX_SESSIONS: 5
       # BORG_DATA_DIR: /backup
       # SSH_KEY_DIR: /sshkeys
-      PUID: 1000
-      PGID: 1000
+      # SSH_LOGLEVEL: DEBUG
+      # BORG_SERVE_ARGS: ''
+      # PGID: 1000
+      # PUID: 1000
       TZ: 'Europe/Berlin'
     restart: unless-stopped
 
 volumes:
-  sshkeys:
+  client_ssh_keys:
+  backup_data:
 
 # vim: ts=2:sw=2
