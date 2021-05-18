@@ -1,5 +1,3 @@
-UNDER CONSTRUCTION
-
 BorgServer docker image
 ==========================
 
@@ -10,14 +8,11 @@ persistent storage.
 
 For every ssh-key added, an own borg-repository will be created.
 
-This is a fork of Nold360s great work - switched here to [pip][] install to
-have the latest stable version and focused on unattended server and client
-operation, setting more defaults. For borgbackup server, running docker-compose
-is recommended.
+This is a fork of Nold360s great work, check section "Why this fork?" at
+bottom.
 
 Quick example
 -------------
-
 
 ### Export public ssh key on borg client
 
@@ -27,22 +22,18 @@ Copy the ssh public key from terminal for pasting at server
 	cat ~/.ssh/id_rsa.pub 
 
 
-
 ### Start borg server
 
 Here is a quick example how to configure & run this image. Data persistence is
-achieved here by mapping local directories - you may want to use container
-volumes as recommended
+achieved here by mapping local directories - you may want to use volumes as
+recommended
 
 
-Create persistent sshkey storage, adjust permissions
+Create persistent backup and sshkey storage, adjust permissions
 
-    mkdir -p borg/sshkeys/clients
-    chown 1000:1000 borg/sshkeys
+    mkdir -p borg/sshkeys/clients /borg/backup
 
-
-
-(Generate &) Copy every client's ssh publickey into persistent storage, *remember*: Filename = Borg-repository name!
+Copy every client's ssh publickey into persistent storage, *remember*: Filename = Borg-repository name!
 
     cat - > borg/sshkeys/clients/example_repo
     # paste into terminal, CTRL-D 
@@ -52,34 +43,25 @@ The OpenSSH-Deamon will expose on port 22/tcp - so you will most likely want to 
 
     docker run -td \
         -p 2222:22  \
-        -v ./borg/sshkeys:/sshkeys \
-        -v ./borg/backup:/backup \
+        -v $(pwd)/borg/sshkeys:/sshkeys \
+        -v $(pwd)/borg/backup:/backup \
         sternmotor/borgserver:latest
+
 
 ### Run borg client
 
-Assuming the docker client is a container, too 
-
-    docker run sternmotor/borgclient borg init 
-    docker run sternmotor/borgclient borg create
-
-
-
-Now initiate a borg-repository like this:
-```
- $ borg init backup:my_first_borg_repo
-```
-
-And create your first backup!
-```
- $ borg create backup:my_first_borg_repo::documents-2017-11-01 /home/user/MyImportentDocs
-```
+Check out sternmotor borg client image or run like:
+    
+    borg init ssh://borg@borgserver:22/backup/example_repo --encryption none
+    borg create --compression zstd --stats ssh://borg@borgserver:22/backup/example_repo::monday /home
 
 
 Borgserver configuration
 ------------------------
 
 ### SSH client keys
+
+**NOTE: I will assume that you know, what a ssh-key is and how to generate & use it. If not, you might want to start here: [Arch Wiki](https://wiki.archlinux.org/index.php/SSH_Keys)**
 
 Place borg clients SSH public keys in persistent storage, client
 backup-directories will be named by the filename found in `/sshkeys/clients/`
@@ -114,7 +96,7 @@ automatically created on first start.
 Borg backup writes all client backup data client to repository dir under
 container `/backup` directory. It's best to start with an empty directory.
 Since the borg client takes care of deduplication, encryption and compression
-(reducing bandwith), running backup storage on for example deduplicated and
+(reducing bandwith), running backup storage on deduplicated and
 compressed btrfs may be overkill. 
 
 
@@ -127,22 +109,24 @@ Adjust docker log squeezing globally in `/etc/docker/daemon.json`:
         "log-driver": "json-file",
         "log-level": "warn",
         "log-opts": {
-    	"max-file": "3",
-    	"max-size": "2M",
-    	"mode": "non-blocking"
+            "max-file": "7",
+            "max-size": "20M",
+            "mode": "non-blocking"
         },
     }
 
-Prepare `docker-compose.yml`
+
+Prepare `docker-compose.yml` as in [example file](docker-compose.yml) in this
+repository. This snippet displays avalable options: 
 
     services:
       borgserver:
         image: sternmotor/borgserver:1.1.16
         volumes:
-         - /backup:/backup:rw
-         - ./sshkeys:/sshkeys:rw
+         - backup_data:/backup:rw
+         - ssh_client_keys:/sshkeys:rw
         ports:
-         - "2222:22"
+         - "0.0.0.0:2222:22"
         environment:
          BORG_SERVE_ARGS: ""
          BORG_APPEND_ONLY: "no"
@@ -150,64 +134,37 @@ Prepare `docker-compose.yml`
          PUID: 1000
          PGID: 1000
 
-	
-
-    BORG_REPOSITORIES=/backup \
-    BORG_SSH_KEYS=/sshkeys
-
-### BORG_SERVE_ARGS
-
-Use this variable if you want to set special options for the "borg serve"-command, which is used internally.
-
-See the the documentation for all available arguments: [borgbackup.readthedocs.io](https://borgbackup.readthedocs.io/en/stable/usage.html#borg-serve)
-
-	docker run --rm -e BORG_SERVE_ARGS="--progress --debug" (...) sternmotor/borgserver
+	volumes:
+        backup_data
+        ssh_client_keys:
 
 
-### PUID
-Used to set the user id of the `borg` user inside the container. This can be useful when the container has to access resources on the host with a specific user id.
+Available environment variables - all are optional
+
+* `BORG_SERVE_ARGS`: Use this variable if you want to set special options for the "borg serve"-command, which is used internally. See the the documentation for available arguments: [readthedocs.io][serve_doc]. Default is to set no extra options. Example call:
 
 
-### PGID
-Used to set the group id of the `borg` group inside the container. This can be useful when the container has to access resources on the host with a specific group id.
+	docker run --rm -e BORG_SERVE_ARGS="--progress --append-only" sternmotor/borgserver
 
 
-### Persistent Storages & Client Configuration
-We will need two persistent storage directories for our borgserver to be usefull.
+* `PUID`, `PGID`: Used to set the user id iand group id of the `borg` user inside the container. This can be useful when the container has to access resources on the host with a specific user id.  Default is 1000 for both.
 
-#### /sshkeys
-This directory has two subdirectories:
-
-
-## Example Setup
-### docker-compose.yml
-Here is a quick example, how to run borgserver using docker-compose:
-```
-```
-
-### ~/.ssh/config for clients
-With this configuration (on your borg client) you can easily connect to your borgserver.
-```
-Host backup
-    Hostname my.docker.host
-    Port 2222
-    User borg
-```
-
-
+* `SSH_LOG_LEVEL`: verbosity of sshd daemon in docker logs - one of QUIET, FATAL, ERROR, INFO, VERBOSE, DEBUG1, DEBUG2, and DEBUG3. The default is INFO. DEBUG and DEBUG1 are equivalent. DEBUG2 and DEBUG3 each specify higher levels of debugging output. Logging with a DEBUG level violates the privacy of users and is not recommended. 
+* `BORG_DATA_DIR`: storage for backup repositories - make this location persistent by mounting a docker volume here. Default: `/backups`
+* `SSH_KEY_DIR`: storage for client and borg server host keys - make this location persistent by mounting a docker volume here. Default: `/sshkeys`
 
 
 Why this fork?
 ==============
 
-* switch to docker-compose setup for borg server
-* dropped `BORG_ADMIN` support - every client may run prune action after backup
-* set some more defaults directly in image
-* ssh: added sandboxing
-* fixed borg version
+* dropped `BORG_ADMIN` support - every client may run prune action after
+  backup (you may want to add "--append-only" to `BORG_SERVE_ARGS`)
+* ssh: restricted logins to user "borg"
+* borg: restricted user access to repository "/backup/<repository>" with no
+  sub-repositories
+* install latest stable borg version via pip in space-efficient multistage image
 
-
-BORG CLIENT!!
 
 [ssh_pubkey]: https://wiki.archlinux.org/index.php/SSH_Key
 [pip]: https://pypi.org/project/pip
+[serve_doc]: https://borgbackup.readthedocs.io/en/stable/usage/serve.html 
