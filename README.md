@@ -117,22 +117,23 @@ Adjust docker log squeezing globally in `/etc/docker/daemon.json`:
 
 
 Prepare `docker-compose.yml` as in [example file](docker-compose.yml) in this
-repository. This snippet displays avalable options: 
+repository. This snippet displays available options: 
 
     services:
       borgserver:
         image: sternmotor/borgserver:1.1.16
         volumes:
-         - backup_data:/backup:rw
-         - ssh_client_keys:/sshkeys:rw
+        - backup_data:/backup:rw
+        - ssh_client_keys:/sshkeys:rw
         ports:
-         - "0.0.0.0:2222:22"
+        - "0.0.0.0:22222:22"
         environment:
-         BORG_SERVE_ARGS: ""
-         BORG_APPEND_ONLY: "no"
-         BORG_ADMIN: ""
-         PUID: 1000
-         PGID: 1000
+          BORG_DATA_DIR: /backup
+          SSH_KEY_DIR: /sshkeys
+          SSH_LOGLEVEL: DEBUG
+          BORG_SERVE_ARGS: ''
+          PGID: 1000
+          PUID: 1000
 
 	volumes:
         backup_data
