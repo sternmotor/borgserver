@@ -159,7 +159,7 @@ Why this fork?
 
 * dropped `BORG_ADMIN` support - every client may run prune action after
   backup (you may want to add "--append-only" to `BORG_SERVE_ARGS`)
-* ssh: restricted logins to user "borg"
+* ssh: restricted logins to user "borg", added keepalive option
 * borg: restricted user access to repository "/backup/<repository>" with no
   sub-repositories
 * install latest stable borg version via pip in space-efficient multistage image

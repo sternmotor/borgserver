@@ -6,11 +6,11 @@ TCPKeepAlive yes
 ClientAliveInterval 10
 ClientAliveCountMax 30
 AllowUsers borg
+LogLevel INFO
 HostKey /sshkeys/host/ssh_host_ed25519_key
 HostKey /sshkeys/host/ssh_host_rsa_key
 PermitRootLogin no
 StrictModes yes
-MaxSessions 20
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
 PasswordAuthentication no
