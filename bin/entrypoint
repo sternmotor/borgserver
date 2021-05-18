@@ -1,5 +1,4 @@
-#!/bin/bash 
-set -euo pipefail
+#!/bin/sh -eu
 LANG=C
 
 # constants
@@ -21,7 +20,7 @@ echo "* $0: adjusting borg to $PUID:$PGID" \
 && chown -R borg:borg  "$(echo ~borg)" \
 && install -o $PUID -g $PGID -m 0700 --directory "$(echo ~borg)/.ssh" \
 && install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR" \
-&& install -o $PUID -g $PGID -m 0750 --directory "$SSH_KEY_DIR" "$SSH_KEY_DIR/host" 
+&& install -o $PUID -g $PGID -m 0750 --directory "$SSH_KEY_DIR" "$SSH_KEY_DIR/host"
 
 
 
@@ -40,53 +39,59 @@ else
     borg --version
 
 
-    # check if client ssh keys are present, copy these into borg users authorized_keys
-    echo "* $0: import client SSH keys to borg user's authorized_keys" \
+    # check if client ssh keys are present, exit in case there is no client key file
+    echo "* $0: prepare ~/.ssh/authorized_keys for user borg " \
     && ssh_authkeys_file="$(echo ~borg)/.ssh/authorized_keys" \
     && touch "$ssh_authkeys_file" \
     && chown borg:borg "$ssh_authkeys_file" \
     && chmod 0600 "$ssh_authkeys_file"
 
-    # write client ssh keys and commands - 
-    # "if" condition only works with bash "-o pipefail"
-    if ! find "$SSH_KEY_DIR/clients" -type f | while read keyfile_path; do
-
-        repo_name="$(basename "$keyfile_path")" 
-        echo "  * $repo_name"
-        # create repository dir, if not exists
-        install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR/$repo_name" 
-
-        # define ssh command in authorized_keys
-        echo -n "cd '$BORG_DATA_DIR/$repo_name' && borg serve " >> "$ssh_authkeys_file"
-        echo -n "--restrict-to-path '$BORG_DATA_DIR/$repo_name' " >> "$ssh_authkeys_file"
-        echo -n "$BORG_SERVE_ARGS" >> "$ssh_authkeys_file"
-        cat "$keyfile_path" >> "$ssh_authkeys_file"
-
-#        # validate authorized_keys file
-#        if ! ssh-keygen -lf "$ssh_authkeys_file"; then
-#            echo "ERROR in generated authorized_keys file:"
-#            cat "$ssh_authkeys_file"
-#            exit 1
-#        fi
-    # or exit in case there is no client key file
-    done; then
-        echo "ERROR executing $0: Error processing client ssh key files in \"$SSH_KEY_DIR/clients\"!"
+    echo "* $0: checking if there are any client ssh keys" 
+    if [ ! "$(ls -A "$SSH_KEY_DIR/clients")" ]; then
+        echo "ERROR executing $0: could not find ssh key files in \"$SSH_KEY_DIR/clients\"!"
         exit 1
+
+    # copy client ssh keys into borg users authorized_keys
+    else
+
+        # write client ssh keys and commands 
+        find "$SSH_KEY_DIR/clients" -type f | while read keyfile_path; do
+
+            repo_name="$(basename "$keyfile_path")" 
+            echo -n "  > processing $repo_name ... "
+            # create repository dir, if not exists
+            install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR/$repo_name" 
+
+            # define ssh command in authorized_keys
+            echo -n "cd '$BORG_DATA_DIR/$repo_name' && borg serve " >> "$ssh_authkeys_file"
+            echo -n "--restrict-to-path '$BORG_DATA_DIR/$repo_name' " >> "$ssh_authkeys_file"
+            echo -n "$BORG_SERVE_ARGS" >> "$ssh_authkeys_file"
+            cat "$keyfile_path" >> "$ssh_authkeys_file"
+
+    #        # validate authorized_keys file
+    #        if ! ssh-keygen -lf "$ssh_authkeys_file"; then
+    #            echo "ERROR in generated authorized_keys file:"
+    #            cat "$ssh_authkeys_file"
+    #            exit 1
+    #        fi
+            echo "ok"
+
+        done
+
+        # create ssh host keys on peristent storage, if not exists
+        for keytype in ed25519 rsa ; do
+            if [ ! -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" ] ; then
+                echo "* $0: creating SSH host key [${keytype}]"
+                ssh-keygen -q -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" -N '' -t ${keytype}
+            fi
+        done
+
+        # finally, clean up and start sshd
+        echo "* $0: adjusting sshd to $SSH_MAX_SESSIONS max sessions, starting"
+        sed -i "s|^MaxSessions.*|MaxSessions $SSH_MAX_SESSIONS|" /etc/ssh/sshd_config
+
+        exec /usr/sbin/sshd -D -e "$@"
     fi
-
-    # create ssh host keys on peristent storage, if not exists
-    for keytype in ed25519 rsa ; do
-        if [ ! -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" ] ; then
-            echo "* $0: creating SSH host key [${keytype}]"
-            ssh-keygen -q -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" -N '' -t ${keytype}
-        fi
-    done
-
-    # finally, clean up and start sshd
-    echo "* $0: adjusting sshd to $SSH_MAX_SESSIONS max sessions, starting"
-    sed -i "s|^MaxSessions.*|MaxSessions $SSH_MAX_SESSIONS|" /etc/ssh/sshd_config
-
-    exec /usr/sbin/sshd -D -e "$@"
 
 fi
 
