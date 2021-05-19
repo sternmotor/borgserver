@@ -62,8 +62,11 @@ else
                 install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR/$key_file" 
 
                 # define ssh command in authorized_keys
+                # note the difference between --restrict-to-path and
+                # --restrict-to-repository: here, multiple repositories are
+                # allowed
                 echo -n "command=\"cd $BORG_DATA_DIR/$key_file && /opt/borg/bin/borg serve " >> "$ssh_authkeys_file"
-                echo -n "--restrict-to-repository $BORG_DATA_DIR/$key_file " >> "$ssh_authkeys_file"
+                echo -n "--restrict-to-path $BORG_DATA_DIR/$key_file " >> "$ssh_authkeys_file"
                 echo -n "$BORG_SERVE_ARGS\" " >> "$ssh_authkeys_file"
                 cat "$key_file" >> "$ssh_authkeys_file"
 
