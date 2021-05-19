@@ -14,12 +14,9 @@ RUN set -ex \
  && DEBIAN_FRONTEND=noninteractive \
     apt-get install --yes \
         build-essential \
-        libacl1 \
-        libacl1-dev \
-        libssl-dev \
-        openssl \
-        python3 \
-        python3-dev \
+        libacl1 libacl1-dev\
+        openssl libssl-dev \
+        python3 python3-dev \
         python3-pip \
         virtualenv
 
