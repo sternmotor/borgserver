@@ -156,46 +156,7 @@ repository. This snippet displays available options:
 
 Available environment variables - all are optional
 
-* `BORG_SERVE_ARGS`: Use this variable if you want to set special options for
-  the "borg serve"-command, which is used internally. See the the documentation
-  for available arguments: [readthedocs.io][serve_doc]. Default is to set no
-  extra options. Example call:
 
 
-    docker run --rm -e BORG_SERVE_ARGS="--progress --append-only" sternmotor/borgserver
 
 
-* `PUID`, `PGID`: Used to set the user id iand group id of the `borg` user
-  inside the container. This can be useful when the container has to access
-  resources on the host with a specific user id.  Default is 1000 for both.
-* `SSH_LOG_LEVEL`: verbosity of sshd daemon in docker logs - one of QUIET,
-  FATAL, ERROR, INFO, VERBOSE, DEBUG1, DEBUG2, and DEBUG3. The default is INFO.
-  DEBUG and DEBUG1 are equivalent. DEBUG2 and DEBUG3 each specify higher levels
-  of debugging output. Logging with a DEBUG level violates the privacy of users
-  and is not recommended. 
-* `BORG_DATA_DIR`: storage for backup repositories - make this location
-  persistent by mounting a docker volume here. Default: `/backups`
-* `SSH_KEY_DIR`: storage for client and borg server host keys - make this
-  location persistent by mounting a docker volume here. Default: `/sshkeys`
-
-
-Why this fork?
-==============
-
-The forked setup is adapted to productive server operation in a rather closed
-environment with well-known connections and focus on straight maintenance process:
-
-* dropped `BORG_ADMIN` construct - every client may run prune action after backup 
-* sshd: restricted logins to user "borg", added keepalive option
-* borg: restricted client access to repositories under `/backup/<client>` so
-  each client may run multiple borg backup repositories for separately named
-  docker-compose projects or kubernets pods. The idea is that a docker host as
-  borg client runs backup for all local containers.
-* run latest stable borg version via pip install in space-efficient multistage
-  image
-
-
-[ssh_pubkey]: https://wiki.archlinux.org/index.php/SSH_Key
-[pip]: https://pypi.org/project/pip
-[serve_doc]: https://borgbackup.readthedocs.io/en/stable/usage/serve.html 
-[archwiki]: https://wiki.archlinux.org/index.php/SSH_Keys

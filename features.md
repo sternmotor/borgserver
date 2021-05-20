@@ -4,23 +4,24 @@ Setup
 * Use the following variables if you want to set special options for the "borg
   serve"-command of multi-user groups (see section below). 
 
-    * `REPO_SERVE_EXTRA_ARGS`  
-    * `APPENDONLY_SERVE_EXTRA_ARGS`
-    * `ADMIN_SERVE_EXTRA_ARGS`
+    * `REPO_EXTRA_ARGS`: options for full-access repositories
+    * `APPENDONLY_EXTRA_ARGS`: options for restricted repositories
+    * `ADMIN_EXTRA_ARGS`: options for serving all repositories to admin users
+      (including "borg")
 
   This extra options may be for example "quota" options, see the documentation
   for available arguments: [readthedocs.io][serve_doc]. Default is to set no
   extra options. Example call, setting a 20GB quota for all "append-only"
   repositories:
 
-          docker run --rm -e APPENDONLY_SERVE_EXTRA_ARGS="--progress --storage-quota 20G" sternmotor/borgserver
+          docker run --rm -e APPENDONLY_EXTRA_ARGS="--progress --storage-quota 20G" sternmotor/borgserver
 
 * `PUID`, `PGID`: Used to set the user id and group id of the `borg` user
   inside the container. This can be useful for single user operation (see
   section below) when the container has to access resources on the host with a
   specific user id.  Default is 1000 for both.
 
-          docker run --rm -e PUID=2048 -PGID=2048 sternmotor/borgserver
+          docker run --rm -e PUID=2048 -e PGID=2048 sternmotor/borgserver
 
 * `BORG_SSHKEYS`: add ssh keys for logging in to user "borg" in single user
   operation, see section below
@@ -65,16 +66,14 @@ Multi-user operation allows for restricting access of clients to single
 repositories, to run append-only repositories and to have more admin accounts.
 Multi-user accounts may be added or removed without restarting the container.
 
-Each repository is represented by a user account. A repository may be named
+Each repository is represented by a "repository user" account. A repository may be named
 like a host fqdn or docker-compose project. In each repository, several
-docker-compose services may be stored as borg archives. The idea is that on
-docker hosts, root runs backups of all containers but stores these in
+docker-compose services may be stored as borg archives. 
+
+Multiple users may be allowed to push to a single repository. The idea is that
+on docker hosts, root runs backups of all containers but stores these in
 repositories independent of the docker host they live on by the time the backup
 is done. 
-
-Multiple users may be allowed to push to a single repository - for example
-multiple docker hosts can backup up the same container depending where this
-container currently lives.
 
 User accounts are automatically created at container startup or by running
 `update-borgusers` inside the container.  Repository management is based on
@@ -85,17 +84,17 @@ directories.
 
 Several modes of borg hosting are realized via user groups:
 
-* `borg-repo`: standard user accounts (representing repositories) with full
+* `borg-repo`: standard repository user accounts with full
   access to a single repository `/repos/<user_name>` - allowing all borg
   operations
-* `borg-appendonly`: safe user accounts (representing repositories) allowing no
-  "remove" or prune" operations, "init" and "create" operations, only
+* `borg-appendonly`: safe repository user accounts allowing no
+  "remove" or prune" operations but "init" and "create" operations, only
 * `borg-admin`: users given full access to all repositories - no repository is
-  created for the borg-admin users 
+  created for the borg-admin users. User "borg" is member of this group, too
 
 Users and repositories are added in two steps: 
 
-1. add one or multiple SSH public key of remote client to a single file, named like the repository:
+1. add one or multiple SSH public key of remote SSH client to a single file, named like the repository:
     * `/sshkeys/repos`
     * `/sshkeys/repos-appendonly`
     * `/sshkeys/admins`
@@ -183,7 +182,7 @@ case is the backup of containers with no fixed location in a cluster.
   layed down in sshd dameon config, not public key files)
 * sshd: restricted logins to "borg-xxx" groups
 * sshd: added keepalive option
-* one public SSH key may be mapped to multiple repository users
+* one public SSH key may be mapped to multiple "repository users"
 * all repositories are side by side under `/repos`, sub-directories are not allowed
 * run latest stable borg version via pip install in space-efficient multistage
   image
