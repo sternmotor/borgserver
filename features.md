@@ -20,6 +20,9 @@ Here is a quick example how to configure & run a container in multi-user mode.
 Data persistence is achieved by mapping local directories - you may want
 to use volumes as recommended. 
 
+**NOTE: I will assume that you know, what a ssh-key is and how to generate &
+use it. If not, you might want to start here: [Arch Wiki][archwiki]**
+
 At first, on docker host where borgserver is running initiate basic directory
 structure for ssh keys:
 
@@ -159,7 +162,6 @@ Server administration
 Borg server container may be administered via docker exec directly. Every
 non-executable command string will be run as borg command, for example
 
-    docker exec -ti borg01 list all
     docker ps  --format "{{.Names}}" | sort # list containers
     docker exec -ti borgserver_01 list
 
@@ -168,10 +170,6 @@ Server configuration details
 ----------------------------
 
 ### SSH client keys
-
-**NOTE: I will assume that you know, what a ssh-key is and how to generate &
-use it. If not, you might want to start here: [Arch Wiki][archwiki]**
-
 
 Place borg clients SSH public keys in 
 
@@ -182,7 +180,7 @@ Place borg clients SSH public keys in
 
 The `/sshkeys/host` directory and SSH host keys of the borgserver container is
 automatically created if it does not exist. This must be persistent storage to
-enable a SSH trust relation to borgbackup clients.
+enable a permanent SSH trust relation to borgbackup clients.
 
 
 ### Backup storage
@@ -221,7 +219,7 @@ repository. This snippet displays available options:
 
 Available environment variables - all are optional
 * Use the following variables if you want to set special options for the "borg
-  serve"-command of multi-user groups (see section below). 
+  serve"-command of multi-user groups (see section above). 
 
     * `REPO_EXTRA_ARGS`: options for full-access repositories
     * `APPENDONLY_EXTRA_ARGS`: options for restricted repositories
@@ -237,13 +235,13 @@ Available environment variables - all are optional
 
 * `PUID`, `PGID`: Used to set the user id and group id of the `borg` user
   inside the container. This can be useful for single user operation (see
-  section below) when the container has to access resources on the host with a
+  section above) when the container has to access resources on the host with a
   specific user id.  Default is 1000 for both.
 
           docker run --rm -e PUID=2048 -e PGID=2048 sternmotor/borgserver
 
 * `BORG_SSHKEYS`: add ssh keys for logging in to user "borg" in single user
-  operation, see section below
+  operation, see section above
 
 
 
