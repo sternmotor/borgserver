@@ -1,6 +1,142 @@
-Setup
------
+BorgServer docker image
+==========================
+This image has borg server software installed and runs a SSH server for 
+access to 
 
+* different repositories with one single "borg" user or
+* different repositories with multiple users, allowing more flexible setups
+
+. SSH connections of remote clients are enabled via [SSH publickey auth][ssh_pubkey].
+Backup-repositories, public SSH keys of backup clients and sshd hostkeys will
+be stored in persistent storage.  
+
+This is a fork of Nold360s great work, check section "Why this fork?" at
+bottom.
+
+Quick example
+-------------
+
+Here is a quick example how to configure & run a container in multi-user mode.
+Data persistence is achieved here by mapping local directories - you may want
+to use volumes as recommended. 
+
+At first, on docker host where borgserver is running initiate basic directory
+structure for ssh keys:
+
+    mkdir -p sshkeys/{repos,appendonly,admins} repos
+
+Add borg client(s) public SSH key(s) into a "repository user" key file,
+*remember*: filename = borg repository and user name!
+
+    edit sshkeys/repos/borgclient.example.com
+
+
+The OpenSSH-Deamon will expose on port 22/tcp - so you will most likely want to
+redirect it to a different port. Like in this example:
+
+    docker run --rm -t \
+        -p 22222:22  \
+        -v $(pwd)/sshkeys:/sshkeys:rw \
+        -v $(pwd)/repos:/repos:rw \
+        sternmotor/borgserver:latest
+
+
+A: initialize and  run backup, specify full URL at each call - for scripting
+
+    REPO_URL=ssh://borgclient.example.com@borgserver.example.com:22222/repos/borgclient.example.com
+    borg init $REPO_URL --encryption none
+    borg create --compression zstd --stats $REPO_URL::home-monday /home
+
+B: initialize and  run backup, sport a ssh config file to have clean config for interactive use
+
+* create a `~/.ssh/config` file at borg client side containing
+
+        Host borgserver
+            Hostname borgserver.example.com
+            Port 22222
+            User borgclient.example.com
+
+* run borg client - check out sternmotor borg client image or run like:
+    
+        borg init borgserver:borgclient.example.com --encryption none
+        borg create --compression zstd --stats borgserver:borgclient.example.com::home-monday /home
+
+
+
+
+Borg server configuration
+------------––-----------
+
+### SSH client keys
+
+**NOTE: I will assume that you know, what a ssh-key is and how to generate &
+use it. If not, you might want to start here: [Arch Wiki][archwiki]**
+
+
+Place borg clients SSH public keys in 
+
+* environment variable `BORG_SSHKEYS`, see "Single user operation" section below
+* persistent storage volume mounted at `/sshkeys`, see "Multi user operation"
+  section below. Hidden files will be ignored!
+
+
+A client at `webserver.example.com` would have to initiate a single borg repository like this:
+
+    borg init ssh://borg@borgserver.example.com/backup/webserver.example.com
+
+A docker host `docker01.example.com` housing the docker-compose projects
+"web01.example.com" and "seafile01.example.com" would have to initiate borg
+repositories like this:
+
+    borg init ssh://borg@borgserver.example.com/backup/docker01.example.com/web01.example.com
+    borg init ssh://borg@borgserver.example.com/backup/docker01.example.com/seafile01.example.com
+    # place public ssh key of root@docker01.example.com under clients/docker01.example.com
+
+
+The container wouldn't start the SSH-Deamon until there is at least one
+ssh-keyfile in `/sshkeys/clients/` 
+
+### SSH server host keys
+
+The `/sshkeys/host` directory and SSH host keys of the borgserver container is
+automatically created if it does not exist.
+
+
+### Backup storage
+
+Borg backup writes all client backup data to repository dir(s) under container
+`/backup` directory. It's best to start with an empty directory.  Since the
+borg client takes care of deduplication, encryption and compression (reducing
+bandwith), running backup storage on deduplicated and compressed btrfs may be
+overkill. 
+
+
+### Docker (docker-compose) configuration
+
+Prepare `docker-compose.yml` as in [example file](docker-compose.yml) in this
+repository. This snippet displays available options: 
+
+    services:
+      borgserver:
+        image: sternmotor/borgserver:latest
+        volumes:
+        - repos:/repos:rw
+        - sshkeys:/sshkeys:rw
+        ports:
+        - "0.0.0.0:22222:22"
+        environment:
+          PGID: 1000
+          PUID: 1000
+        environment:
+            BORG_SSHKEYS: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-a.example.com
+            TZ: Europe/Berlin
+
+	volumes:
+        repos:
+        sshkeys:
+
+
+Available environment variables - all are optional
 * Use the following variables if you want to set special options for the "borg
   serve"-command of multi-user groups (see section below). 
 
@@ -9,10 +145,10 @@ Setup
     * `ADMIN_EXTRA_ARGS`: options for serving all repositories to admin users
       (including "borg")
 
-  This extra options may be for example "quota" options, see the documentation
-  for available arguments: [readthedocs.io][serve_doc]. Default is to set no
-  extra options. Example call, setting a 20GB quota for all "append-only"
-  repositories:
+  This extra options may be used for "quota" options for example. See the
+  documentation for available arguments: [readthedocs.io][serve_doc]. Default is
+  to set no extra options. Example call, setting a 20GB quota for all
+  "append-only" repositories:
 
           docker run --rm -e APPENDONLY_EXTRA_ARGS="--progress --storage-quota 20G" sternmotor/borgserver
 
@@ -146,7 +282,6 @@ entrypoint script
 
     else:
         error - CMD not set up in Dockerfile
-
 
 sshkeys:
     repos/              group borg-repo
