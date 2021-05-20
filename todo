@@ -1,0 +1,38 @@
+
+
+Prgrommirtung:
+----------------
+
+entrypoint script
+    CMD= sshd -e -D
+
+    if $1 = sshd:
+        update-repos 
+        run $@
+
+    elif $1 <> sshd aber executable (e.g. borg)
+        run $@ 
+
+    elif $1 not executable:
+        run borg with command/option $@
+
+    else:
+        error - CMD not set up in Dockerfile
+
+sshkeys:
+    repos/              group borg-repo
+    repos-appendonly/   group borg-appendonly
+    admins/             group borg-admin
+    host/
+
+validate all keys in repos && admins,
+* check pubkey format
+* error + stop when same repo is in repo and appendonly or admin
+* error + stop when bad host keys 
+
+create users and repositores (for repo and appendonly) and map to borg-xxx group according to folder, the rest is done via group-match in sshd_config, globally
+
+run through alle repos - in case there is no listed user ssh key, remove user account
+
+
+pre-fetch known host key in case it does not exist - chnanges later on break the ssh connection as it should be

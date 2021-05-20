@@ -6,7 +6,7 @@ access to
 * different repositories with one single "borg" user or
 * different repositories with multiple users, allowing more flexible setups
 
-. SSH connections of remote clients are enabled via [SSH publickey auth][ssh_pubkey].
+SSH connections of remote clients are enabled via [SSH publickey auth][ssh_pubkey].
 Backup-repositories, public SSH keys of backup clients and sshd hostkeys will
 be stored in persistent storage.  
 
@@ -17,7 +17,7 @@ Quick example
 -------------
 
 Here is a quick example how to configure & run a container in multi-user mode.
-Data persistence is achieved here by mapping local directories - you may want
+Data persistence is achieved by mapping local directories - you may want
 to use volumes as recommended. 
 
 At first, on docker host where borgserver is running initiate basic directory
@@ -26,7 +26,8 @@ structure for ssh keys:
     mkdir -p sshkeys/{repos,appendonly,admins} repos
 
 Add borg client(s) public SSH key(s) into a "repository user" key file,
-*remember*: filename = borg repository and user name!
+*remember*: filename = borg repository and user name! Add public SSH keys one
+each line.
 
     edit sshkeys/repos/borgclient.example.com
 
@@ -41,13 +42,13 @@ redirect it to a different port. Like in this example:
         sternmotor/borgserver:latest
 
 
-A: initialize and  run backup, specify full URL at each call - for scripting
+Option A: initialize and  run backup, specify full URL at each call - for scripting
 
     REPO_URL=ssh://borgclient.example.com@borgserver.example.com:22222/repos/borgclient.example.com
     borg init $REPO_URL --encryption none
     borg create --compression zstd --stats $REPO_URL::home-monday /home
 
-B: initialize and  run backup, sport a ssh config file to have clean config for interactive use
+Option B: initialize and  run backup, sport a ssh config file to have clean config for interactive use
 
 * create a `~/.ssh/config` file at borg client side containing
 
@@ -62,10 +63,109 @@ B: initialize and  run backup, sport a ssh config file to have clean config for 
         borg create --compression zstd --stats borgserver:borgclient.example.com::home-monday /home
 
 
+Single user operation
+---------------------
+
+One initial user account is hard wired into the image: "borg" (UID 1000) - this
+is a "borg-admin" (see multi-user below) account, therefore allowed to create
+and run any repository under `/repo`.  
+
+1. set up a comma-separated list of allowed SSH public keys for the "borg"
+   account via environment variable `BORG_SSHKEYS` - here, an example snippet
+   of a docker-compose file:
+    
+        ...
+        environment:
+            BORG_SSHKEYS: >-
+                ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-a.example.com,
+                ssh-ed25519 BAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-b.example.com,
+                ssh-ed25519 CAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-c.example.com
+        ...
+
+2. from client side, initiate and run backups like:
 
 
-Borg server configuration
-------------––-----------
+        REPO_URL=ssh://borg@borgserver.example.com:22222/repos/borgclient.example.com
+        borg init $REPO_URL --encryption none
+        borg create --compression zstd --stats $REPO_URL::home-monday /home
+    
+
+You may want to adapt the UID and GID of the borg user via `PUID` or `PGID`
+environment variable, this can be useful when the container has to access
+resources on the host with a specific user id.
+
+
+Multi user operation
+--------------------
+
+Multi-user operation allows for restricting access of clients to single
+repositories, to run append-only repositories and to have more admin accounts.
+Multi-user accounts may be added or removed without restarting the container.
+
+Each repository is represented by a "repository user" account. A repository may be named
+like a host fqdn or docker-compose project. In each repository, several
+docker-compose services may be stored as borg archives. 
+
+Multiple users may be allowed to push to a single repository. The idea is that
+on docker hosts, root runs backups of all containers but stores these in
+repositories independent of the docker host they live on by the time the backup
+is done. 
+
+User accounts are automatically created at container startup or by running
+`update-borgusers` inside the container.  Repository management is based on
+named files under `/sshkeys/repos|repos-appendonly|admins`, this files contain
+one SSH public key each, allowing access to one repository. Each user will be able
+to access any file or subdirectory inside of `/repos/<user name>` but no other
+directories.
+
+Several modes of borg hosting are realized via user groups:
+
+* `borg-repo`: standard repository user accounts with full
+  access to a single repository `/repos/<user_name>` - allowing all borg
+  operations
+* `borg-appendonly`: safe repository user accounts allowing no
+  "remove" or prune" operations but "init" and "create" operations, only
+* `borg-admin`: users given full access to all repositories - no repository is
+  created for the borg-admin users. User "borg" is member of this group, too
+
+Users and repositories are added in two steps: 
+
+1. add one or multiple SSH public key of remote SSH client to a single file, named like the repository:
+    * `/sshkeys/repos`
+    * `/sshkeys/repos-appendonly`
+    * `/sshkeys/admins`
+
+2. run `update-borgusers` script within container, for example like
+
+        docker ps  --format "{{.Names}}" | sort # list containers
+        docker exec -ti borgserver_01 update-borgusers
+
+3. from client side, initiate and run backups like:
+
+        REPO_URL=ssh://borgclient.example.com@borgserver.example.com:22222/repos/borgclient.example.com
+        borg init $REPO_URL --encryption none
+        borg create --compression zstd --stats $REPO_URL::home-monday /home
+
+
+The script `update-borgusers` is run at each container start.
+
+Repositories are never removed when SSH key files are removed from `/sshkeys`,
+but user accounts are pruned. 
+
+
+Server administration
+---------------------
+
+Borg server container may be administered via docker exec directly. Every
+non-executable command string will be run as borg command, for example
+
+    docker exec -ti borg01 list all
+    docker ps  --format "{{.Names}}" | sort # list containers
+    docker exec -ti borgserver_01 list
+
+
+Server configuration details
+----------------------------
 
 ### SSH client keys
 
@@ -75,37 +175,20 @@ use it. If not, you might want to start here: [Arch Wiki][archwiki]**
 
 Place borg clients SSH public keys in 
 
-* environment variable `BORG_SSHKEYS`, see "Single user operation" section below
-* persistent storage volume mounted at `/sshkeys`, see "Multi user operation"
-  section below. Hidden files will be ignored!
-
-
-A client at `webserver.example.com` would have to initiate a single borg repository like this:
-
-    borg init ssh://borg@borgserver.example.com/backup/webserver.example.com
-
-A docker host `docker01.example.com` housing the docker-compose projects
-"web01.example.com" and "seafile01.example.com" would have to initiate borg
-repositories like this:
-
-    borg init ssh://borg@borgserver.example.com/backup/docker01.example.com/web01.example.com
-    borg init ssh://borg@borgserver.example.com/backup/docker01.example.com/seafile01.example.com
-    # place public ssh key of root@docker01.example.com under clients/docker01.example.com
-
-
-The container wouldn't start the SSH-Deamon until there is at least one
-ssh-keyfile in `/sshkeys/clients/` 
+* Single user operation: environment variable `BORG_SSHKEYS`
+* Multi user operation: persistent storage volume mounted at `/sshkeys` - hidden files will be ignored!
 
 ### SSH server host keys
 
 The `/sshkeys/host` directory and SSH host keys of the borgserver container is
-automatically created if it does not exist.
+automatically created if it does not exist. This must be persistent storage to
+enable a SSH trust relation to borgbackup clients.
 
 
 ### Backup storage
 
-Borg backup writes all client backup data to repository dir(s) under container
-`/backup` directory. It's best to start with an empty directory.  Since the
+Borg backup writes all client backup data to repository directories under container
+`/repos` directory. It's best to start with an empty directory.  Since the
 borg client takes care of deduplication, encryption and compression (reducing
 bandwith), running backup storage on deduplicated and compressed btrfs may be
 overkill. 
@@ -161,148 +244,6 @@ Available environment variables - all are optional
 
 * `BORG_SSHKEYS`: add ssh keys for logging in to user "borg" in single user
   operation, see section below
-
-
-Single user operation
----------------------
-
-One initial user account is hard wired into the image: "borg" (UID 1000) - this
-is a "borg-admin" (see multi-user below) account, therefore allowed to create
-and run any repository under `/repo`.  
-
-1. set up a comma-separated list of allowed SSH public keys for the "borg"
-   account via environment variable `BORG_SSHKEYS` - here, an example snippet
-   of a docker-compose file:
-    
-        ...
-        environment:
-            BORG_SSHKEYS: >-
-                ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-a.example.com,
-                ssh-ed25519 BAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-b.example.com,
-                ssh-ed25519 CAAAC3NzaC1lZDI1NTE5AAAAIPmrPrtinCGxvYsNYzEAYGPRQ7NyTWuActrTvjfG/lxV root@server-c.example.com
-        ...
-
-2. from client side, initiate and run backups like:
-
-
-    borg init ssh://borg@
-TODODODODODO
-
-    
-
-You may want to adapt the UID and GID of the borg user via `PUID` or `PGID`
-environment variable, this can be useful when the container has to access
-resources on the host with a specific user id.
-
-
-Multi user operation
---------------------
-
-Multi-user operation allows for restricting access of clients to single
-repositories, to run append-only repositories and to have more admin accounts.
-Multi-user accounts may be added or removed without restarting the container.
-
-Each repository is represented by a "repository user" account. A repository may be named
-like a host fqdn or docker-compose project. In each repository, several
-docker-compose services may be stored as borg archives. 
-
-Multiple users may be allowed to push to a single repository. The idea is that
-on docker hosts, root runs backups of all containers but stores these in
-repositories independent of the docker host they live on by the time the backup
-is done. 
-
-User accounts are automatically created at container startup or by running
-`update-borgusers` inside the container.  Repository management is based on
-named files under `/sshkeys/repos|repos-appendonly|admins`, this files contain
-one SSH public key each, allowing access to one repository. Each user will be able
-to access any file or subdirectory inside of `/repos/<user name>` but no other
-directories.
-
-Several modes of borg hosting are realized via user groups:
-
-* `borg-repo`: standard repository user accounts with full
-  access to a single repository `/repos/<user_name>` - allowing all borg
-  operations
-* `borg-appendonly`: safe repository user accounts allowing no
-  "remove" or prune" operations but "init" and "create" operations, only
-* `borg-admin`: users given full access to all repositories - no repository is
-  created for the borg-admin users. User "borg" is member of this group, too
-
-Users and repositories are added in two steps: 
-
-1. add one or multiple SSH public key of remote SSH client to a single file, named like the repository:
-    * `/sshkeys/repos`
-    * `/sshkeys/repos-appendonly`
-    * `/sshkeys/admins`
-
-2. run `update-borgusers` script within container, for example like
-
-        docker ps  --format "{{.Names}}" | sort # list containers
-        docker exec -ti borgserver_01 update-borgusers
-
-3. from client side, initiate and run backups like:
-
-TODODODODO
-
-
-The script `update-borgusers` is run at each container start.
-
-Repositories are never removed when SSH key files are removed from `/sshkeys`,
-but user accounts are pruned. 
-
-
-Server administration
----------------------
-
-Borg server container may be administered via docker exec directly. Every non-executable command string will be run as borg command, for example
-
-    docker exec -ti borg01 list all
-
-
- - just drop the SSH public key of connecting client into a 
-
-TODO
-
-
-Prgrommirtung:
-----------------
-
-entrypoint script
-    CMD= sshd -e -D
-
-    if $1 = sshd:
-        update-repos 
-        run $@
-
-    elif $1 <> sshd aber executable (e.g. borg)
-        run $@ 
-
-    elif $1 not executable:
-        run borg with command/option $@
-
-    else:
-        error - CMD not set up in Dockerfile
-
-sshkeys:
-    repos/              group borg-repo
-    repos-appendonly/   group borg-appendonly
-    admins/             group borg-admin
-    host/
-
-validate all keys in repos && admins,
-* check pubkey format
-* error + stop when same repo is in repo and appendonly or admin
-* error + stop when bad host keys 
-
-create users and repositores (for repo and appendonly) and map to borg-xxx group according to folder, the rest is done via group-match in sshd_config, globally
-
-run through alle repos - in case there is no listed user ssh key, remove user account
-
-
-pre-fetch known host key in case it does not exist - chnanges later on break the ssh connection as it should be
-
-    
-
 
 
 
