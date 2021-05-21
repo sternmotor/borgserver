@@ -110,9 +110,9 @@ like a host fqdn or docker-compose project. In each repository, several
 docker-compose services may be stored as borg archives. 
 
 Multiple users may be allowed to push to a single repository. The idea is that
-on docker hosts, root runs backups of all containers but stores these in
-repositories independent of the docker host they live on by the time the backup
-is done. 
+on docker hosts, root runs backups of all container currently living locally.
+Containers are not fixed to reside on one docker host, so multiple docker host
+must be able to push to the same repository.
 
 User accounts are automatically created at container startup or by running
 `update-borgusers` inside the container.  Repository management is based on
@@ -133,7 +133,9 @@ Several modes of borg hosting are realized via user groups:
 
 Users and repositories are added in two steps: 
 
-1. add one or multiple SSH public key of remote SSH client to a single file, named like the repository:
+1. add one or multiple SSH public key of remote SSH client to a single file,
+   named like the repository:
+
     * `/sshkeys/repos`
     * `/sshkeys/repos-appendonly`
     * `/sshkeys/admins`
