@@ -14,7 +14,7 @@ entrypoint script
         run $@ 
 
     elif $1 not executable:
-        run borg with command/option $@
+        run borg with command/option $@ as of https://borgbackup.readthedocs.io/en/stable/usage/list.html
 
     else:
         error - CMD not set up in Dockerfile

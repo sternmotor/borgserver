@@ -8,17 +8,13 @@ services:
   borgserver:
     hostname: borgserver
     container_name: borgserver
-    image: sternmotor/borgserver:1.1.16
+    image: sternmotor/borgserver:1.1.16-rc01
     ports:
     - '0.0.0.0:22222:22'
     volumes:
     - backup_data:/backup:rw
     - client_ssh_keys:/sshkeys:rw
     environment:
-      # BORG_DATA_DIR: /backup
-      # SSH_KEY_DIR: /sshkeys
-      # SSH_LOGLEVEL: DEBUG
-      # BORG_SERVE_ARGS: ''
       # PGID: 1000
       # PUID: 1000
       TZ: 'Europe/Berlin'

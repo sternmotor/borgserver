@@ -1,0 +1,100 @@
+#!/bin/sh -eu
+LANG=C
+
+# constants
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+BORG_SERVE_ARGS="${BORG_SERVE_ARGS:-}"
+BORG_DATA_DIR="${BORG_DATA_DIR:-/backup}"
+SSH_KEY_DIR="${SSH_KEY_DIR:-/sshkeys}"
+SSH_LOGLEVEL="${SSH_LOGLEVEL:-INFO}"
+
+
+# Set the user id of the "borg" user inside the container. This can be useful
+# when the container has to access resources on the host with a specific user
+# id.
+echo "* $0: adjusting borg to $PUID:$PGID, creating basic data structure" \
+&& groupmod --gid $PGID borg \
+&& usermod  --uid $PUID --gid $PGID borg 2>/dev/null \
+&& chown -R borg:borg  "$(echo ~borg)" \
+&& install -o $PUID -g $PGID -m 0700 --directory "$(echo ~borg)/.ssh" \
+&& install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR" \
+&& install -o $PUID -g $PGID -m 0750 --directory "$SSH_KEY_DIR/{,host,clients}" \
+
+
+
+# some executable specified as CMD to entrypoint script
+if which "${1:-}" >/dev/null 2>&1
+then
+
+    echo "* $0: Launching user-defined command \"$@\""
+    exec "$@" 
+
+# container is executed with options or non-executable string as first
+# parameter, start sshd daemon (for accessing borg)
+else
+    # announce borg 
+    echo -n "* $0: Borg version:"
+    borg --version
+
+    ssh_authkeys_file="$(echo ~borg)/.ssh/authorized_keys" \
+    && echo "* $0: create empty $ssh_authkeys_file for user borg " \
+    && install -o $PUID -g $PGID -m 0600 /dev/null "$ssh_authkeys_file" \
+    && /bin/true > "$ssh_authkeys_file"
+
+    echo "* $0: processing client ssh keys" 
+    cd "$SSH_KEY_DIR/clients" > /dev/null
+    if ! ls * > /dev/null; then
+        echo "ERROR executing $0: could not find ssh key files in \"$SSH_KEY_DIR/clients\"!"
+        exit 1
+
+    # copy client ssh keys into borg users authorized_keys
+    else
+
+        # write client ssh keys and commands 
+        for key_file in * ; do
+
+            echo -n "  > enabling repository $BORG_DATA_DIR/$key_file ... "
+            if ssh-keygen -lf "$key_file" > /dev/null
+            then
+                # create repository dir, if not exists
+                install -o $PUID -g $PGID -m 0750 --directory "$BORG_DATA_DIR/$key_file" 
+
+                # define ssh command in authorized_keys
+                # note the difference between --restrict-to-path and
+                # --restrict-to-repository: here, multiple repositories are
+                # allowed
+                echo -n "command=\"cd $BORG_DATA_DIR/$key_file && /opt/borg/bin/borg serve " >> "$ssh_authkeys_file"
+                echo -n "--restrict-to-path $BORG_DATA_DIR/$key_file " >> "$ssh_authkeys_file"
+                echo -n "$BORG_SERVE_ARGS\" " >> "$ssh_authkeys_file"
+                cat "$key_file" >> "$ssh_authkeys_file"
+
+                echo "ok"
+
+            else
+                echo "ERROR validating ssh key \"clients/$key_file\"!"
+                exit 2
+            fi
+
+        done
+
+        # create ssh host keys on persistent storage, if not exists
+        for keytype in ed25519 rsa ; do
+            if [ ! -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" ] ; then
+                echo "* $0: creating SSH host key [${keytype}]"
+                ssh-keygen -q -f "${SSH_KEY_DIR}/host/ssh_host_${keytype}_key" -N '' -t ${keytype}
+            fi
+        done
+
+        # finally, clean up and start sshd
+        echo "* $0: adjusting sshd hostkey dir \"$SSH_KEY_DIR\" and log level \"$SSH_LOGLEVEL\""
+        sed -i "s|^LogLevel.*|LogLevel $SSH_LOGLEVEL|" /etc/ssh/sshd_config
+        sed -i "s|/sshkeys/|/$SSH_KEY_DIR/|" /etc/ssh/sshd_config
+
+        exec /usr/sbin/sshd -D -e "$@"
+    fi
+
+fi
+
+# vim: set ft=sh:ts=4:sw=4:
