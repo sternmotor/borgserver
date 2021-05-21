@@ -38,6 +38,7 @@ RUN set -ex \
  && apt-get update \
  && DEBIAN_FRONTEND=noninteractive \
     apt-get install --yes --no-install-recommends --no-install-suggests \
+        acl \
         openssh-server \
         python3-minimal \
         python3-distutils \
@@ -48,6 +49,7 @@ RUN set -ex \
 COPY --from=builder /opt/borg /opt/borg
 COPY bin/ /usr/local/bin/
 COPY config/sshd_config /etc/ssh/
+
 
 # application runtime config
 RUN set -ex \
@@ -63,5 +65,6 @@ ENV PATH="/opt/borg/bin:$PATH"
 # docker integration
 EXPOSE 22
 ENTRYPOINT ["/usr/local/bin/entrypoint"]
+CMD /usr/sbin/sshd -D -e
 
 # vim: set ft=sh:ts=4:sw=4:
