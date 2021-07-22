@@ -54,8 +54,10 @@ COPY config/sshd_config /etc/ssh/
 # application runtime config
 RUN set -ex \
  # create borg group and user, set random password
- && groupadd borg --gid 1000 \
- && useradd --gid 1000 --uid 1000 --create-home --shell /bin/bash borg \
+ && groupadd borg-admin --gid 1000 \
+ && groupadd borg-repo --gid 1001 \
+ && groupadd borg-appendonly --gid 1002 \
+ && useradd --gid 1000 --uid borg-admin --create-home --shell /bin/bash borg \
  && echo "borg:$(tr -dc _A-Z-a-z-0-9 </dev/urandom | head -c${1:-32})" | chpasswd \
  # sshd privilege separation workdir
  && mkdir -p /run/sshd

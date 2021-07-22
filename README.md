@@ -6,7 +6,9 @@ access to
 * different repositories with one single "borg" user or
 * different repositories with multiple users, allowing more flexible setups
 
-SSH connections of remote clients are enabled via [SSH publickey auth][ssh_pubkey].
+SSH connections of remote clients are allowed via [SSH publickey
+auth][ssh_pubkey], exclusively.
+
 Backup-repositories, public SSH keys of backup clients and sshd hostkeys will
 be stored in persistent storage.  
 
@@ -16,58 +18,62 @@ bottom.
 Quick example
 -------------
 
-Here is a quick example how to configure & run a container in multi-user mode.
-Data persistence is achieved by mapping local directories - you may want
-to use volumes as recommended. 
+Here is a quick start instructions how to configure & run borg backup server
+container in multi-user mode. Check sections below for details.
 
 **NOTE: I will assume that you know, what a ssh-key is and how to generate &
 use it. If not, you might want to start here: [Arch Wiki][archwiki]**
 
+In this example, Data persistence is achieved by mapping local directories -
+you may want to use volumes as recommended. 
+
+
 At first, on docker host where borgserver is running initiate basic directory
-structure for ssh keys:
+structure for ssh keys and backup data storage:
 
-    mkdir -p sshkeys/{repos,appendonly,admins} repos
+    mkdir -p sshkeys/{borg-repo,borg-appendonly,borg-admin} repos
 
-Add borg client(s) public SSH key(s) into a "repository user" key file,
-*remember*: filename = borg repository and user name! Add public SSH keys one
-each line.
+Add borg clients public SSH keys to a "repository user" key file, *remember*:
+filename = borg repository and user name! Add public SSH keys one each line.
 
-    edit sshkeys/repos/borgclient.example.com
+    edit sshkeys/borg-repo/borgclient.example.com
 
-
-The OpenSSH-Deamon will expose on port 22/tcp - so you will most likely want to
-redirect it to a different port. Like in this example:
+Run this docker image, SSH listening on port 22222 like in this example:
 
     docker run --rm -t \
-        -p 22222:22  \
+        -n borgserver \
+        -p 22222:22 \
         -v $(pwd)/sshkeys:/sshkeys:rw \
         -v $(pwd)/repos:/repos:rw \
         sternmotor/borgserver:latest
 
 
-Option A: initialize and  run backup, specify full URL at each call - for scripting
+From backup client, connect to borg backup server:
 
     REPO_URL=ssh://borgclient.example.com@borgserver.example.com:22222/repos/borgclient.example.com
     borg init $REPO_URL --encryption none
     borg create --compression zstd --stats $REPO_URL::home-monday /home
 
-Option B: initialize and  run backup, sport a ssh config file to have clean config for interactive use
+Opionally, sport a ssh config file to pre-define connection options:
 
-* create a `~/.ssh/config` file at borg client side containing
+* create a `~/.ssh/config` file containing something like
 
         Host borgserver
             Hostname borgserver.example.com
             Port 22222
             User borgclient.example.com
+            ControlPath ~/.ssh/%r@%h:%p
+            ControlMaster auto
+            ControlPersist 1h
 
-* run borg client - check out sternmotor borg client image or run like:
+* running borg clients shortens to:
     
         borg init borgserver:borgclient.example.com --encryption none
         borg create --compression zstd --stats borgserver:borgclient.example.com::home-monday /home
 
 
-Single user operation
----------------------
+Details: Single user operation
+------------------------------
 
 One initial user account is hard wired into the image: "borg" (UID 1000) - this
 is a "borg-admin" (see multi-user below) account, therefore allowed to create
@@ -98,34 +104,36 @@ environment variable, this can be useful when the container has to access
 resources on the host with a specific user id.
 
 
-Multi user operation
---------------------
+Details: Multi user operation
+-----------------------------
 
 Multi-user operation allows for restricting access of clients to single
-repositories, to run append-only repositories and to have more admin accounts.
-Multi-user accounts may be added or removed without restarting the container.
+repositories, to run append-only repositories and to have multiple admin
+accounts.  Multi-user accounts may be added or removed without restarting the
+container.
 
-Each repository is represented by a "repository user" account. A repository may be named
-like a host fqdn or docker-compose project. In each repository, several
-docker-compose services may be stored as borg archives. 
+Each repository is represented by a "repository user" account. A repository may
+be named like a host FQDN or docker-compose project. For backing up
+docker-compose projects, each service should be stored as single borg archive. 
 
 Multiple users may be allowed to push to a single repository. The idea is that
 on docker hosts, root runs backups of all container currently living locally.
-Containers are not fixed to reside on one docker host, so multiple docker host
-must be able to push to the same repository.
+Containers are not fixed to reside on one docker host, so multiple docker hosts
+with own root accounts must be able to push to the same repository.
 
-User accounts are automatically created at container startup or by running
-`update-borgusers` inside the container.  Repository management is based on
-named files under `/sshkeys/repos|repos-appendonly|admins`, this files contain
-one SSH public key each, allowing access to one repository. Each user will be able
-to access any file or subdirectory inside of `/repos/<user name>` but no other
+When the borgserver container starts, user accounts are automatically created
+by running `update-borgusers` inside the container. This can be repeated
+anytime later, manually. Repository management is based on files under
+`/sshkeys/borg-repo|borg-appendonly|borg-admin` directories. Each directory is
+assigned to a user group with the same name. This files contain one SSH public
+key each, allowing access to one repository. Each user will be able to access
+any file or subdirectory inside of `/repos/<user name>` but no other
 directories.
 
-Several modes of borg hosting are realized via user groups:
+Several modes of borg hosting are realized via user groups :
 
-* `borg-repo`: standard repository user accounts with full
-  access to a single repository `/repos/<user_name>` - allowing all borg
-  operations
+* `borg-repo`: standard repository user accounts with full access to a single
+  repository `/repos/<user_name>` - allowing all borg operations
 * `borg-appendonly`: safe repository user accounts allowing no
   "remove" or prune" operations but "init" and "create" operations, only
 * `borg-admin`: users given full access to all repositories - no repository is
@@ -136,14 +144,13 @@ Users and repositories are added in two steps:
 1. add one or multiple SSH public key of remote SSH client to a single file,
    named like the repository:
 
-    * `/sshkeys/repos`
-    * `/sshkeys/repos-appendonly`
-    * `/sshkeys/admins`
+    * `/sshkeys/borg-repo`
+    * `/sshkeys/borg-appendonly`
+    * `/sshkeys/borg-admin`
 
 2. run `update-borgusers` script within container, for example like
 
-        docker ps  --format "{{.Names}}" | sort # list containers
-        docker exec -ti borgserver_01 update-borgusers
+        docker exec -ti borgserver update-borgusers
 
 3. from client side, initiate and run backups like:
 
@@ -164,8 +171,7 @@ Server administration
 Borg server container may be administered via docker exec directly. Every
 non-executable command string will be run as borg command, for example
 
-    docker ps  --format "{{.Names}}" | sort # list containers
-    docker exec -ti borgserver_01 list
+    docker exec -ti borgserver list
 
 
 Server configuration details
@@ -218,6 +224,8 @@ repository. This snippet displays available options:
         repos:
         sshkeys:
 
+A OpenSSH-Deamon will expose on port 22/tcp - you may want to redirect it to
+listen on a different port not interfering with host's ssh.
 
 Available environment variables - all are optional
 * Use the following variables if you want to set special options for the "borg

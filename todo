@@ -1,3 +1,162 @@
+This project provides  
+* a current [borg server software][borg_software] packed into a container image
+* and  clear and easy to automate user - and operation concept
+. The latter is about backups of containers and linux servers between
+data centers.
+
+Essentially, an SSH server is operated which runs "borg serve" commands for
+authenticated users. Two modes of operation are supported:
+
+* "Single user operation": easy backup operation with a single linux user "borg" and
+  multiple borg repositories on borg server
+* Multi user operation": Fine-grained permission handling with multiple linux
+  users and groups on borg server, backups run decoupled from repository
+  maintenance actions
+
+
+[Here][borg_manual] you can find detailed instructions for the use of
+[borgbackup][borg_software]. Many thanks to Nold360 for the inspiration how to use
+repositories and user accounts on the Borg server can be provisioned.
+can be provisioned.
+
+[borg_manual]: https://borgbackup.readthedocs.io/en/stable/quickstart.html
+[borg_software]: https://www.borgbackup.org/
+
+
+Single user operation
+---------------------
+
+This the quick and easy way to work with borg server - there is one user "borg"
+with full access to one or multiple repositories. Borg clients connect to borg
+server as user "borg" by means of provisioned public ssh keys and run backup,
+check and restore operations.
+
+### Quickstart
+
+
+### Details
+
+
+Multi user operation
+--------------------
+
+Multi-user operation restricts access of borg clients to single repositories,
+allows to run append-only repositories and to have more then one admin account.
+Multi-user accounts may be added or removed without restarting the container.
+
+### Quickstart
+
+
+### Details
+
+A linux user is assigned to each repository. These users are created or removed
+when the container is started or by calling `update-borgusers` in the
+container. When removing users, the repository data is preserved.
+
+Put SSH public key of Borg clients into one of the three user group folders:
+
+* `/sshkeys/repo-admin`
+* `/sshkeys/repo-user`
+* `/sshkeys/borg-admin`
+
+The name of the public SSH key file is used as the name for the repository user
+and the name of the associated repository. Multiple public SSH keys can be
+stored line by line in one file.  Likewise, the same public SSH key can be used
+to access multiple repositories by copying it into multiple key files.
+
+Storing SSH key files to the user group folders sets the following permissions
+for the borg backup client that owns the public SSH key:
+
+* **repo-user**: Secure use - borg client user is not allowed to  *permanent*
+  delete of data, directly. After "prune" or "delete" operation, a
+  **repo-admin** user may roll backup this actions. Archives are automatically
+  verified (`borg check`) and thinned (`borg prune`) according to
+  `REPO_USER_PRUNE_SCHEDULE`. Encryption is not implemented - this would break 
+  "borg check" operations
+    * "borg serve" options:  
+        * `--append-only`
+        * `--noatime`
+        * `--nobsdflags`
+        * `--restrict-to-repository /repos/<repo name>`
+        
+* **repo-admin**: Full access to your own repository - allows encryption and
+  running `borg check` and `borg prune` operations according to your
+  own specifications - there is no automatic repository maintenance.
+    * Borg serve options:
+        * `--noatime`
+        * `--nobsdflags`
+        * `--restrict-to-repository /repos/<repo name>`
+
+* **borg-admin**: Users in this group do not own any repository, but
+  are allowed to access all repositories on the server. This can be used, for
+  example, to run `borg check` and `borg prune` on the archives of **repo-user**
+  borg clients and to restore from backups.
+    * Borg serve options:  
+        * `--restrict-to-path /repos`
+
+It is advisable to run borg backups as restricted "repo-user" and let the
+borg server do "borg check" and "borg cleanup" runs time independently. See
+section "Automatic repository checks" for an implemenation example.
+
+This restricted "repo-user" = "append-only" mode does not prevent data removal,
+but makes it reversible [borg usage note][borg_notes] - comparable to a builtin
+"undo":
+
+> Even if an archive appears to be available, it is possible an attacker could
+> delete just a few chunks from an archive and silently corrupt its data. While
+> in append-only mode, this is reversible, but borg check should be run before a
+> writing/pruning operation on an append-only repository to catch accidental or
+> malicious corruption:
+>
+>     borg check --verify-data repo
+
+IMPORTANT: The whole thing only works if you know that something stupid or bad
+has just happened to your repository ([discussion]) and are able to prevent any
+write operation to your repository before recovery. Better then nothing.
+
+[borg_notes]: https://borgbackup.readthedocs.io/en/stable/usage/notes.html
+[discussion]: https://mail.python.org/pipermail/borgbackup/2018q3/001148.html
+
+
+Automatic repository checks
+---------------------------
+
+docker-compose mit borgclient + cron
+
+----
+
+
+borg client:
+Im Multi-User Modus borgclient- cointerinaer mit cron laufen lassen
+CRON-CHECK
+CRON-CREATE
+CRON-CREATE-CHECK
+REPO_PRUNE_SCHEME
+
+* before pruning: borg check --verify-data repo
+
+SSH
+export BORG_RSH='ssh -oBatchMode=yes'
+Host backupserver
+        ServerAliveInterval 10
+        ServerAliveCountMax 30
+
+If you then run borg commands with `--lock-wait 600`, this gives sufficient time for the borg serve processes to terminate after the SSH connection is torn down after the 300 second wait for the keepalives to fail.
+
+
+----------
+
+server:
+* REPO_USER_QUOTA
+* REPO_ADMIN_QUOTA
+
+* SSH is running in "BatchMode" - only public key authentification is allowed.
+PasswordAuthentication no   sshd_config
+
+------------
+
+
+
 
 
 Prgrommirtung:
