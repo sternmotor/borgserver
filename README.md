@@ -24,19 +24,19 @@ container in multi-user mode. Check sections below for details.
 **NOTE: I will assume that you know, what a ssh-key is and how to generate &
 use it. If not, you might want to start here: [Arch Wiki][archwiki]**
 
-In this example, Data persistence is achieved by mapping local directories -
-you may want to use volumes as recommended. 
+In this example, data persistence is achieved by mapping local directories -
+you may want to use volumes as commonly recommended. 
 
 
 At first, on docker host where borgserver is running initiate basic directory
 structure for ssh keys and backup data storage:
 
-    mkdir -p sshkeys/{borg-repo,borg-appendonly,borg-admin} repos
+    mkdir -p repos sshkeys/{full,append,admin}
 
 Add borg clients public SSH keys to a "repository user" key file, *remember*:
 filename = borg repository and user name! Add public SSH keys one each line.
 
-    edit sshkeys/borg-repo/borgclient.example.com
+    edit sshkeys/full/borgclient.example.com
 
 Run this docker image, SSH listening on port 22222 like in this example:
 
@@ -76,8 +76,7 @@ Details: Single user operation
 ------------------------------
 
 One initial user account is hard wired into the image: "borg" (UID 1000) - this
-is a "borg-admin" (see multi-user below) account, therefore allowed to create
-and run any repository under `/repo`.  
+account is  allowed to create and run any repository under `/repos/borg`.  
 
 1. set up a comma-separated list of allowed SSH public keys for the "borg"
    account via environment variable `BORG_SSHKEYS` - here, an example snippet
@@ -94,7 +93,7 @@ and run any repository under `/repo`.
 2. from client side, initiate and run backups like:
 
 
-        REPO_URL=ssh://borg@borgserver.example.com:22222/repos/borgclient.example.com
+        REPO_URL=ssh://borg@borgserver.example.com:22222/repos/borg/borgclient.example.com
         borg init $REPO_URL --encryption none
         borg create --compression zstd --stats $REPO_URL::home-monday /home
     
@@ -124,7 +123,7 @@ with own root accounts must be able to push to the same repository.
 When the borgserver container starts, user accounts are automatically created
 by running `update-borgusers` inside the container. This can be repeated
 anytime later, manually. Repository management is based on files under
-`/sshkeys/borg-repo|borg-appendonly|borg-admin` directories. Each directory is
+`/sshkeys/full|append|admin` directories. Each directory is
 assigned to a user group with the same name. This files contain one SSH public
 key each, allowing access to one repository. Each user will be able to access
 any file or subdirectory inside of `/repos/<user name>` but no other
@@ -132,21 +131,21 @@ directories.
 
 Several modes of borg hosting are realized via user groups :
 
-* `borg-repo`: standard repository user accounts with full access to a single
+* `full`: standard repository user accounts with full access to a single
   repository `/repos/<user_name>` - allowing all borg operations
-* `borg-appendonly`: safe repository user accounts allowing no
-  "remove" or prune" operations but "init" and "create" operations, only
-* `borg-admin`: users given full access to all repositories - no repository is
-  created for the borg-admin users. User "borg" is member of this group, too
+* `append`: safer repository user accounts not allowing 
+  "remove" or "prune" operations but "init" and "create" operations, only
+* `admin`: users given full access to all repositories - no repository is
+  created for the borg-admin users.
 
 Users and repositories are added in two steps: 
 
 1. add one or multiple SSH public key of remote SSH client to a single file,
    named like the repository:
 
-    * `/sshkeys/borg-repo`
-    * `/sshkeys/borg-appendonly`
-    * `/sshkeys/borg-admin`
+    * `/sshkeys/full`
+    * `/sshkeys/append`
+    * `/sshkeys/admin`
 
 2. run `update-borgusers` script within container, for example like
 
@@ -182,13 +181,14 @@ Server configuration details
 Place borg clients SSH public keys in 
 
 * Single user operation: environment variable `BORG_SSHKEYS`
-* Multi user operation: persistent storage volume mounted at `/sshkeys` - hidden files will be ignored!
+* Multi user operation: persistent storage volume mounted at `/sshkeys`
 
 ### SSH server host keys
 
-The `/sshkeys/host` directory and SSH host keys of the borgserver container is
-automatically created if it does not exist. This must be persistent storage to
-enable a permanent SSH trust relation to borgbackup clients.
+In `/sshkeys/borgserver` directory, SSH host keys of the borgserver container
+are stored respectively automatically created if these do not exist. This
+directory should be persistent to enable a permanent SSH trust relation of
+borgbackup clients.
 
 
 ### Backup storage
@@ -231,17 +231,17 @@ Available environment variables - all are optional
 * Use the following variables if you want to set special options for the "borg
   serve"-command of multi-user groups (see section above). 
 
-    * `REPO_EXTRA_ARGS`: options for full-access repositories
-    * `APPENDONLY_EXTRA_ARGS`: options for restricted repositories
-    * `ADMIN_EXTRA_ARGS`: options for serving all repositories to admin users
-      (including "borg")
+    * `FULL_EXTRA_ARGS`: options for full-access repositories
+    * `APPEND_EXTRA_ARGS`: options for restricted repositories
+    * `ADMIN_EXTRA_ARGS`: options for serving all repositories 
+    * `BORG_EXTRA_ARGS`: options for serving borg single-user repositories
 
   This extra options may be used for "quota" options for example. See the
   documentation for available arguments: [readthedocs.io][serve_doc]. Default is
   to set no extra options. Example call, setting a 20GB quota for all
   "append-only" repositories:
 
-          docker run --rm -e APPENDONLY_EXTRA_ARGS="--progress --storage-quota 20G" sternmotor/borgserver
+          docker run --rm -e APPEND_EXTRA_ARGS="--progress --storage-quota 20G" sternmotor/borgserver
 
 * `PUID`, `PGID`: Used to set the user id and group id of the `borg` user
   inside the container. This can be useful for single user operation (see
@@ -259,16 +259,17 @@ Why this fork?
 ==============
 
 Some changes have been applied to original Nold360 approach, mainly around the
-idea that mutiple hosts should be able to write to the same repository. Use
-case is the backup of containers with no fixed location in a cluster.
+idea that multiple hosts should be able to write to the same repository. Use
+case is the backup of containers with no fixed location (fixed container host
+system) in a cluster.
 
 * sshd: easier management of borg serve options via group handling (behaviour is
   layed down in sshd dameon config, not public key files)
-* sshd: restricted logins to "borg-xxx" groups
+* sshd: restricted logins to "borg-xxx" groups and "borg" user
 * sshd: added keepalive option
 * one public SSH key may be mapped to multiple "repository users"
 * all repositories are side by side under `/repos`, sub-directories are not allowed
-* run latest stable borg version via pip install in space-efficient multistage
+* run latest stable borg version via pip install build in space-efficient multistage
   image
 
 [ssh_pubkey]: https://wiki.archlinux.org/index.php/SSH_Key
